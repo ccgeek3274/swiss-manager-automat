@@ -12,9 +12,9 @@ jobs:
     name: Windows .exe
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -29,7 +29,7 @@ jobs:
           --add-data "icon.png;."
           naklikej_hrace.py
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: SwissManagerAutomat-windows
           path: dist/SwissManagerAutomat.exe
@@ -40,7 +40,7 @@ jobs:
     # Stačí Linux — .command je skript se shebangem, nic se nekompiluje
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Sestavit samostatný .command
         run: |
@@ -56,7 +56,7 @@ jobs:
           cd out && zip -X ../SwissManagerAutomat-macos.zip \
             SwissManagerAutomat.command icon.png
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: SwissManagerAutomat-macos
           path: SwissManagerAutomat-macos.zip
@@ -70,7 +70,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artefakty
 
