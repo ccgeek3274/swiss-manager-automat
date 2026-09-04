@@ -1,12 +1,22 @@
-"""Vygeneruje icon.png / icon.ico / icon.icns: šachovnice se zaoblenými rohy
-(průhledné okolí), nad ní klávesa "SM". Jednorázový skript, spouštět s Pillow."""
+"""Vygeneruje icon.png / icon.ico: šachovnice se zaoblenými rohy
+(průhledné okolí), nad ní klávesa "SM". Jednorázový skript, spouštět s Pillow.
+
+Použití: python3 gen_icon.py <ikona-swiss-manageru.png>
+
+Zdrojová ikona v repozitáři není — leží v instalaci Swiss-Manageru, pod
+CrossOverem např. v "~/Library/Application Support/CrossOver/Bottles/<bottle>/
+windata/cxmenu/icons/hicolor/32x32/apps/". Výstup se zapíše vedle skriptu.
+"""
+import os
+import sys
+
 from PIL import Image, ImageDraw, ImageFont
 
-SRC = (
-    "/Users/karel/Library/Application Support/CrossOver/Bottles/Chess/"
-    "windata/cxmenu/icons/hicolor/32x32/apps/F6BA_SwissManager.0.png"
-)
-OUT_DIR = "/Users/karel/Soukrome/bin/swiss-manager-automat"
+if len(sys.argv) != 2:
+    sys.exit(f"Použití: {os.path.basename(sys.argv[0])} <ikona-swiss-manageru.png>")
+
+SRC = sys.argv[1]
+OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 S = 256
 
 # Šachovnice ostře zvětšená, neprůhledná (i bílá pole), pak oříznutá
@@ -61,9 +71,9 @@ cx = (kx0 + kx1) / 2 - tw / 2 - bbox[0]
 cy = (ky0 + ky1 - 12) / 2 - th / 2 - bbox[1]
 draw.text((cx, cy), "SM", font=font, fill=(40, 40, 45, 255))
 
-img.save(f"{OUT_DIR}/icon.png")
+img.save(os.path.join(OUT_DIR, "icon.png"))
 img.save(
-    f"{OUT_DIR}/icon.ico",
+    os.path.join(OUT_DIR, "icon.ico"),
     sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
 )
-print("hotovo")
+print(f"hotovo: {OUT_DIR}/icon.png, {OUT_DIR}/icon.ico")

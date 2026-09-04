@@ -69,6 +69,6 @@ dejte STOP.
 | Soubor | Popis |
 |---|---|
 | `naklikej_hrace.py` | Celá aplikace |
-| `gen_icon.py` | Jednorázový generátor `icon.png` / `icon.ico` (vyžaduje Pillow, cesty jsou v něm napevno) |
+| `gen_icon.py` | Jednorázový generátor `icon.png` / `icon.ico` — `python3 gen_icon.py <ikona-SM.png>`, zapisuje vedle skriptu (vyžaduje Pillow) |
 | `icon.png`, `icon.ico` | Ikona okna a exe |
 | `BUILD_WINDOWS.md` | Build `.exe` pro Windows |
