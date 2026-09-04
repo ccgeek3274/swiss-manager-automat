@@ -40,8 +40,31 @@ System Events klávesy neodešle.
 python3 naklikej_hrace.py
 ```
 
-Sestavení `.exe` pro Windows včetně varianty bez buildu popisuje
+Na macOS jde místo toho dvojkliknout na **`naklikej_hrace.command`** ve Finderu —
+otevře Terminál a spustí aplikaci. Musí ležet ve stejné složce jako
+`naklikej_hrace.py`. Oprávnění „Zpřístupnění pro počítač“ se v tomto případě
+uděluje Terminálu.
+
+## Hotové sestavené soubory
+
+Poslední vydání je v [Releases](../../releases):
+
+| Soubor | Platforma | Poznámka |
+|---|---|---|
+| `SwissManagerAutomat.exe` | Windows | Jeden soubor, Python uvnitř, nic se neinstaluje |
+| `SwissManagerAutomat-macos.zip` | macOS | Samostatný `.command` — vyžaduje na stroji Python 3 |
+
+Obojí staví GitHub Actions ([`.github/workflows/build.yml`](.github/workflows/build.yml))
+na tag `v*`. Sestavení `.exe` ručně na vlastním Windows stroji popisuje
 [BUILD_WINDOWS.md](BUILD_WINDOWS.md).
+
+Ani jeden soubor není digitálně podepsaný:
+
+- **Windows** — SmartScreen při prvním spuštění varuje („neznámý vydavatel“),
+  je potřeba kliknout na *Další informace* → *Přesto spustit*.
+- **macOS** — stažený soubor má karanténní příznak, takže Gatekeeper dvojklik
+  odmítne. Pomůže pravé tlačítko → *Otevřít*, nebo
+  `xattr -dr com.apple.quarantine SwissManagerAutomat.command`.
 
 ## Postup práce
 
@@ -69,6 +92,7 @@ dejte STOP.
 | Soubor | Popis |
 |---|---|
 | `naklikej_hrace.py` | Celá aplikace |
+| `naklikej_hrace.command` | Spouštěč pro macOS — dvojklik ve Finderu |
 | `gen_icon.py` | Jednorázový generátor `icon.png` / `icon.ico` — `python3 gen_icon.py <ikona-SM.png>`, zapisuje vedle skriptu (vyžaduje Pillow) |
 | `icon.png`, `icon.ico` | Ikona okna a exe |
 | `BUILD_WINDOWS.md` | Build `.exe` pro Windows |

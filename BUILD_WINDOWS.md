@@ -3,6 +3,24 @@
 Skript je multiplatformní — na Windows používá PowerShell (Set-Clipboard + SendKeys),
 na macOS pbcopy + osascript. Nepotřebuje žádné pip balíčky.
 
+## Varianta 0: Nechat to na GitHub Actions (nejsnazší)
+
+Windows počítač není potřeba — build běží na runneru GitHubu
+(`.github/workflows/build.yml`). Stačí otagovat verzi:
+
+```
+git tag v1.0.0
+git push --tags
+```
+
+Actions sestaví `SwissManagerAutomat.exe`, přibalí i macOS `.command`
+a založí Release, ze kterého si kolegové soubor stáhnou přímo.
+Bez tagu jde workflow spustit i ručně (záložka Actions → Build →
+Run workflow) — pak se exe uloží jen jako artefakt na 90 dní.
+
+Zbytek tohoto dokumentu popisuje ruční build, když je potřeba
+sestavit exe mimo GitHub.
+
 ## Varianta A: Build na libovolném Windows počítači (jednorázově)
 
 1. Nainstalovat Python — 3.13 nebo libovolný novější (stačí jednou,

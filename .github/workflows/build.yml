@@ -1,0 +1,86 @@
+name: Build
+
+# Ruční spuštění vyrobí jen artefakty (90 dní, ke stažení je potřeba účet).
+# Tag v* navíc založí Release s trvalými odkazy pro kolegy.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  windows:
+    name: Windows .exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Aplikace sama žádné závislosti nemá, PyInstaller je jen na build
+      - run: pip install pyinstaller
+
+      - name: Sestavit exe
+        run: >
+          pyinstaller --onefile --windowed
+          --name SwissManagerAutomat
+          --icon icon.ico
+          --add-data "icon.png;."
+          naklikej_hrace.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SwissManagerAutomat-windows
+          path: dist/SwissManagerAutomat.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS .command
+    # Stačí Linux — .command je skript se shebangem, nic se nekompiluje
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sestavit samostatný .command
+        run: |
+          mkdir -p out
+          {
+            echo '#!/usr/bin/env python3'
+            cat naklikej_hrace.py
+          } > out/SwissManagerAutomat.command
+          chmod +x out/SwissManagerAutomat.command
+          cp icon.png out/
+          # Zabaleno v zipu, protože stažení jednotlivého souboru z Releases
+          # zahodí příznak spustitelnosti — v archivu se zachová
+          cd out && zip -X ../SwissManagerAutomat-macos.zip \
+            SwissManagerAutomat.command icon.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SwissManagerAutomat-macos
+          path: SwissManagerAutomat-macos.zip
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefakty
+
+      - name: Založit Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --repo "$GITHUB_REPOSITORY"
+          --title "$GITHUB_REF_NAME"
+          --generate-notes
+          artefakty/SwissManagerAutomat-windows/SwissManagerAutomat.exe
+          artefakty/SwissManagerAutomat-macos/SwissManagerAutomat-macos.zip
