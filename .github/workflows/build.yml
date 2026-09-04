@@ -21,6 +21,21 @@ jobs:
       # Aplikace sama žádné závislosti nemá, PyInstaller je jen na build
       - run: pip install pyinstaller
 
+      # Ověří, že ctypes deklarace Win32 API sedí — na Linuxu/macOS se
+      # tenhle blok vůbec nevykoná, takže překlep by se jinak projevil
+      # až u uživatele
+      - name: Smoke test Win32 volání
+        run: |
+          python -c @"
+          import naklikej_hrace as m
+          okna = m._win_visible_titles()
+          print(f'EnumWindows OK, viditelných oken: {len(okna)}')
+          assert m._win_activate_swiss() is False, 'na runneru Swiss-Manager nebeží'
+          print('_win_activate_swiss() bez Swiss-Manageru vrací False - OK')
+          m.describe_windows()
+          print('describe_windows() OK')
+          "@
+
       - name: Sestavit exe
         run: >
           pyinstaller --onefile --windowed

@@ -13,6 +13,38 @@ IS_WINDOWS = sys.platform == "win32"
 
 API_BASE = "https://api.chess.cz/api"
 
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    SW_RESTORE = 9
+
+    _user32 = ctypes.windll.user32
+    _ENUM_WINDOWS_PROC = ctypes.WINFUNCTYPE(
+        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+    )
+
+    # Bez argtypes by ctypes ořezal 64bitové HWND na int a okna by se míjela
+    _user32.GetForegroundWindow.restype = wintypes.HWND
+    _user32.EnumWindows.argtypes = [_ENUM_WINDOWS_PROC, wintypes.LPARAM]
+    _user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    _user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    _user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    _user32.IsIconic.argtypes = [wintypes.HWND]
+    _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    _user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    _user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    _user32.AttachThreadInput.argtypes = [
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.BOOL,
+    ]
+
 
 def resource_path(name):
     """Cesta k přibalenému souboru — funguje i v PyInstaller onefile exe."""
@@ -57,22 +89,107 @@ def _activate_mac_process(proc_name):
     return result.returncode == 0
 
 
+def _win_title(hwnd):
+    length = _user32.GetWindowTextLengthW(hwnd)
+    if not length:
+        return ""
+    buf = ctypes.create_unicode_buffer(length + 1)
+    _user32.GetWindowTextW(hwnd, buf, length + 1)
+    return buf.value
+
+
+def _win_visible_titles():
+    """Titulky všech viditelných top-level oken — pro hledání i pro diagnostiku."""
+    titles = []
+
+    def callback(hwnd, _lparam):
+        if _user32.IsWindowVisible(hwnd):
+            title = _win_title(hwnd)
+            if title:
+                titles.append((hwnd, title))
+        return True
+
+    _user32.EnumWindows(_ENUM_WINDOWS_PROC(callback), 0)
+    return titles
+
+
+def _win_pid(hwnd):
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def _win_foreground_ok(hwnd):
+    """True, když je vpředu hledané okno nebo jiné okno téhož procesu.
+
+    Dialog pro zadání hráče je vlastněné okno hlavního okna, takže po aktivaci
+    se do popředí dostane on — a to je přesně to, co chceme.
+    """
+    fg = _user32.GetForegroundWindow()
+    if not fg:
+        return False
+    if fg == hwnd:
+        return True
+    pid = _win_pid(hwnd)
+    return pid != 0 and _win_pid(fg) == pid
+
+
+def _win_activate(hwnd):
+    """Přepne na okno a ověří, že opravdu dostalo popředí.
+
+    Windows nepustí okno dopředu procesu, který popředí zrovna nevlastní.
+    Proto se vstupní fronta vlákna aktuálního popředního okna dočasně připojí
+    k vláknu cílového (AttachThreadInput) — jinak by se jen rozblikala položka
+    na hlavním panelu. Volá se přímo z naší aplikace: jako držitel popředí
+    smí popředí předat dál, na rozdíl od podprocesu PowerShellu.
+    """
+    if _user32.IsIconic(hwnd):
+        _user32.ShowWindow(hwnd, SW_RESTORE)
+
+    target_thread = _user32.GetWindowThreadProcessId(hwnd, None)
+    fg_thread = _user32.GetWindowThreadProcessId(_user32.GetForegroundWindow(), None)
+
+    attached = False
+    if fg_thread and target_thread and fg_thread != target_thread:
+        attached = bool(_user32.AttachThreadInput(fg_thread, target_thread, True))
+    try:
+        _user32.BringWindowToTop(hwnd)
+        _user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            _user32.AttachThreadInput(fg_thread, target_thread, False)
+
+    # Přepnutí je asynchronní — chvíli počkat, než se prohlásí za neúspěch
+    for _ in range(20):
+        if _win_foreground_ok(hwnd):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _win_activate_swiss():
+    for hwnd, title in _win_visible_titles():
+        if "swiss" in title.lower():
+            return _win_activate(hwnd)
+    return False
+
+
+def describe_windows():
+    """Seznam otevřených oken do chybové hlášky, ať je vidět, co se nabízelo."""
+    if not IS_WINDOWS:
+        return ""
+    titles = [title for _hwnd, title in _win_visible_titles()]
+    if not titles:
+        return ""
+    return "\n\nOtevřená okna:\n" + "\n".join(f"  • {t}" for t in titles[:15])
+
+
 def activate_swiss_window():
     """Zkusí aktivovat okno aplikace Swiss-Manager. Vrací True při úspěchu."""
     global _swiss_proc_name
 
     if IS_WINDOWS:
-        ps = (
-            "$w = New-Object -ComObject WScript.Shell; "
-            "if ($w.AppActivate('Swiss')) { 'OK' } else { 'NOT_FOUND' }"
-        )
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
-            capture_output=True,
-            text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        return result.stdout.strip() == "OK"
+        return _win_activate_swiss()
 
     if _swiss_proc_name and _activate_mac_process(_swiss_proc_name):
         return True
@@ -517,8 +634,9 @@ class SwissManagerAutomator:
                 self.ui(
                     messagebox.showwarning,
                     "Chyba",
-                    "Nenašel jsem běžící aplikaci 'Swiss…'.\n"
-                    "Spusťte Swiss-Manager, nebo vypněte automatickou aktivaci.",
+                    "Nepodařilo se přepnout na okno Swiss-Manageru.\n"
+                    "Spusťte Swiss-Manager, nebo vypněte automatickou aktivaci "
+                    "a přepněte se během odpočtu ručně." + describe_windows(),
                 )
                 return False
             time.sleep(0.5)
