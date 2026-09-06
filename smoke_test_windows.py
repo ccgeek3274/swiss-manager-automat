@@ -4,6 +4,8 @@ Deklarace ctypes a práce s okny se na Linuxu ani macOS vůbec nevykonají,
 takže bez tohohle testu se chyba v nich pozná až u uživatele.
 """
 import sys
+import threading
+import time
 import tkinter as tk
 
 import naklikej_hrace as m
@@ -17,7 +19,19 @@ assert okna, "runner nema zadne viditelne okno"
 # _win_activate() nesmí zůstat nespuštěná: hledání podle názvu ji na runneru
 # nikdy nezavolá, protože tu žádný Swiss-Manager neběží
 hwnd, title = okna[0]
-uspech = m._win_activate(hwnd)
+
+# Runner rozhoduje, ve kterém vlakne se preda popredi — musi se opravdu pouzit
+pouzity_runner = []
+
+
+def zaznamenavaci_runner(func):
+    pouzity_runner.append(threading.get_ident())
+    return func()
+
+
+uspech = m._win_activate(hwnd, zaznamenavaci_runner)
+assert pouzity_runner, "_win_activate musi predani popredi poslat pres runner"
+print(f"runner pouzit {len(pouzity_runner)}x - OK")
 print(f"_win_activate() na {title!r} vratilo {uspech}")
 print(f"_win_describe(): {m._win_describe(hwnd)}")
 if uspech:
@@ -49,6 +63,40 @@ try:
     print(m.diagnostics_report())
 finally:
     root.destroy()
+
+# Regrese: predani popredi musi probehnout v hlavnim vlakne. Z pracovniho
+# Windows SetForegroundWindow odmitne a zabere jen vyneseni okna navrch —
+# okno ostatni prekryje, ale aktivaci nedostane a GetForegroundWindow pak
+# hlasi porad nasi aplikaci.
+root2 = tk.Tk()
+root2.withdraw()
+app = m.SwissManagerAutomator.__new__(m.SwissManagerAutomator)
+app.root = root2
+app._ui_thread_id = threading.get_ident()
+
+vysledek = {}
+
+
+def z_pracovniho_vlakna():
+    vysledek["vlakno"] = app.call_on_ui_thread(threading.get_ident)
+
+
+t = threading.Thread(target=z_pracovniho_vlakna)
+t.start()
+while t.is_alive():          # hlavni vlakno musi tocit smyckou udalosti
+    root2.update()
+    time.sleep(0.01)
+t.join()
+root2.destroy()
+
+assert vysledek["vlakno"] == threading.get_ident(), (
+    f"call_on_ui_thread musi bezet v hlavnim vlakne "
+    f"({vysledek['vlakno']} != {threading.get_ident()})"
+)
+print("call_on_ui_thread() z pracovniho vlakna bezi v hlavnim - OK")
+
+assert app.call_on_ui_thread(lambda: 42) == 42, "z hlavniho vlakna primo"
+print("call_on_ui_thread() z hlavniho vlakna neblokuje - OK")
 
 print("vse OK")
 sys.exit(0)

@@ -192,7 +192,7 @@ def _win_send_to_front(hwnd):
             _user32.AttachThreadInput(fg_thread, target_thread, False)
 
 
-def _win_activate(hwnd, timeout=4.0, attempts=3):
+def _win_activate(hwnd, runner, timeout=4.0, attempts=3):
     """Přepne na okno a počká, až popředí opravdu převezme.
 
     Přepnutí je asynchronní a velká aplikace s načteným turnajem ho nemusí
@@ -208,7 +208,7 @@ def _win_activate(hwnd, timeout=4.0, attempts=3):
 
     while time.time() < deadline:
         if time.time() >= next_try and pokusu < attempts:
-            _win_send_to_front(hwnd)
+            runner(lambda: _win_send_to_front(hwnd))
             pokusu += 1
             next_try = time.time() + timeout / attempts
         if _win_foreground_ok(hwnd):
@@ -266,13 +266,13 @@ def _win_find_swiss():
     return podle_titulku[0] if podle_titulku else None
 
 
-def _win_activate_swiss():
+def _win_activate_swiss(runner):
     global _last_activation_error
     hwnd = _win_find_swiss()
     if not hwnd:
         _last_activation_error = "Okno Swiss-Manageru se mezi otevřenými okny nenašlo."
         return False
-    return _win_activate(hwnd)
+    return _win_activate(hwnd, runner)
 
 
 def activation_error():
@@ -331,12 +331,24 @@ def diagnostics_report():
     return "\n".join(lines)
 
 
-def activate_swiss_window():
-    """Zkusí aktivovat okno aplikace Swiss-Manager. Vrací True při úspěchu."""
+def activate_swiss_window(runner=None):
+    """Zkusí aktivovat okno aplikace Swiss-Manager. Vrací True při úspěchu.
+
+    runner určuje, ve kterém vlákně se provede samotné předání popředí.
+    Windows ho povolí jen vláknu sdílejícímu vstupní frontu s popředním
+    oknem, takže z pracovního vlákna automatizace se musí přenechat
+    hlavnímu (SwissManagerAutomator.call_on_ui_thread). Odjinud by
+    SetForegroundWindow systém odmítl a zabralo by jen vynesení okna
+    navrch — okno by překrylo ostatní, ale aktivaci by nedostalo.
+    """
     global _swiss_proc_name
 
+    if runner is None:
+        def runner(func):
+            return func()
+
     if IS_WINDOWS:
-        return _win_activate_swiss()
+        return _win_activate_swiss(runner)
 
     if _swiss_proc_name and _activate_mac_process(_swiss_proc_name):
         return True
@@ -431,6 +443,9 @@ class SwissManagerAutomator:
             self.root.iconphoto(True, self._icon)
         except tk.TclError:
             pass  # ikona je volitelná, bez ní aplikace běží dál
+
+        # Hlavní vlákno: odsud se musí volat přepnutí okna, viz call_on_ui_thread
+        self._ui_thread_id = threading.get_ident()
 
         # Stavové proměnné
         self.running = False
@@ -617,7 +632,7 @@ class SwissManagerAutomator:
 
         def try_switch():
             try:
-                ok = activate_swiss_window()
+                ok = activate_swiss_window(self.call_on_ui_thread)
                 extra = (
                     "Zkouška přepnutí: ÚSPĚCH — okno dostalo popředí."
                     if ok
@@ -662,6 +677,39 @@ class SwissManagerAutomator:
         if 0 <= index < len(self.parsed_rows):
             label = self.parsed_rows[index]["status_label"]
             self.ui(lambda: label.config(text=text, foreground=color))
+
+    def call_on_ui_thread(self, func, timeout=30):
+        """Provede funkci v hlavním Tk vlákně a počká na její návratovou hodnotu.
+
+        Windows povolí předání popředí jen vláknu, které sdílí vstupní frontu
+        s popředním oknem — tedy tomu, které drží okno aplikace. Z pracovního
+        vlákna automatizace systém SetForegroundWindow odmítne a zabere jen
+        vynesení okna navrch, takže cílové okno sice ostatní překryje, ale
+        aktivaci nedostane.
+
+        Volání z hlavního vlákna se provede rovnou; čekání na sebe sama
+        by se zaseklo, protože by naplánovaná funkce neměla kdy proběhnout.
+        """
+        if threading.get_ident() == self._ui_thread_id:
+            return func()
+
+        result = {}
+        done = threading.Event()
+
+        def runner():
+            try:
+                result["value"] = func()
+            except Exception as exc:  # předá se volajícímu vláknu
+                result["error"] = exc
+            finally:
+                done.set()
+
+        self.root.after(0, runner)
+        if not done.wait(timeout):
+            raise TimeoutError("volání v hlavním vlákně nedoběhlo včas")
+        if "error" in result:
+            raise result["error"]
+        return result["value"]
 
     def run_in_thread(self, func):
         """Spustí funkci ve vlákně a případnou výjimku ukáže v okně.
@@ -839,7 +887,7 @@ class SwissManagerAutomator:
         """
         if self.auto_focus_var.get():
             self.set_status("Aktivuji okno Swiss-Manageru…")
-            if not activate_swiss_window():
+            if not activate_swiss_window(self.call_on_ui_thread):
                 self.running = False
                 self.ui(self.ui_state_idle)
                 self.set_status("❌ Okno Swiss-Manageru nenalezeno!")
