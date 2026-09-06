@@ -76,6 +76,17 @@ Ani jeden soubor není digitálně podepsaný:
    přepnout během 5s odpočtu.
 5. Po dokončení zkontrolovat ve Swiss-Manageru počet a jména vložených hráčů.
 
+## Když se nepřepne na Swiss-Manager
+
+Tlačítko **🔍 Diagnostika** vypíše všechna otevřená okna i s názvem jejich
+`.exe` a šipkou označí to, které aplikace považuje za Swiss-Manager.
+Tlačítkem **Zkusit přepnout** se aktivace vyzkouší samostatně, bez spouštění
+celé automatizace. Když se přepnutí nepovede, vypíše se, na jaké okno se
+mířilo a co zůstalo v popředí.
+
+Okno se hledá podle názvu `.exe`, ne podle titulku — titulek obsahuje „swiss“
+i u téhle aplikace a u prohlížeče s otevřeným tímhle repozitářem.
+
 ## ⚠️ Upozornění
 
 Aplikace pouze **emuluje stisky kláves** (Alt+Q, Ctrl+V, Enter) v aktivním okně.
@@ -93,6 +104,7 @@ dejte STOP.
 |---|---|
 | `naklikej_hrace.py` | Celá aplikace |
 | `naklikej_hrace.command` | Spouštěč pro macOS — dvojklik ve Finderu |
+| `smoke_test_windows.py` | Test volání Win32 API, běží ve workflow na Windows runneru |
 | `gen_icon.py` | Jednorázový generátor `icon.png` / `icon.ico` — `python3 gen_icon.py <ikona-SM.png>`, zapisuje vedle skriptu (vyžaduje Pillow) |
 | `icon.png`, `icon.ico` | Ikona okna a exe |
 | `BUILD_WINDOWS.md` | Build `.exe` pro Windows |
