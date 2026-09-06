@@ -54,7 +54,10 @@ try:
     )
     print("vlastni okno se preskakuje - OK")
 
-    assert m._win_activate_swiss() is False, "bez Swiss-Manageru musi vratit False"
+    primy_runner = (lambda func: func())
+    assert m._win_activate_swiss(primy_runner) is False, (
+        "bez Swiss-Manageru musi vratit False"
+    )
     print("_win_activate_swiss() bez Swiss-Manageru vraci False - OK")
     assert m.activation_error(), "neuspech musi byt popsany pro chybovou hlasku"
     print(f"popis neuspechu: {m.activation_error().strip()}")
