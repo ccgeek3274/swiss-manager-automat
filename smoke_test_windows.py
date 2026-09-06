@@ -71,11 +71,27 @@ finally:
 # Windows SetForegroundWindow odmitne a zabere jen vyneseni okna navrch —
 # okno ostatni prekryje, ale aktivaci nedostane a GetForegroundWindow pak
 # hlasi porad nasi aplikaci.
-root2 = tk.Tk()
-root2.withdraw()
+# Regrese: predani popredi musi probehnout v hlavnim vlakne. Z pracovniho
+# Windows SetForegroundWindow odmitne a zabere jen vyneseni okna navrch —
+# okno ostatni prekryje, ale aktivaci nedostane a GetForegroundWindow pak
+# hlasi porad nasi aplikaci.
+#
+# Testuje se rozhodovani call_on_ui_thread proti nahradnimu rootu: skutecny
+# Tk by sem pritahl vlaknovy model Tcl, ktery s testovanou logikou nesouvisi.
+
+
+class NahradniRoot:
+    def __init__(self):
+        self.naplanovane = []
+
+    def after(self, _ms, func, *args):
+        self.naplanovane.append(lambda: func(*args))
+
+
+hlavni_vlakno = threading.get_ident()
 app = m.SwissManagerAutomator.__new__(m.SwissManagerAutomator)
-app.root = root2
-app._ui_thread_id = threading.get_ident()
+app.root = NahradniRoot()
+app._ui_thread_id = hlavni_vlakno
 
 vysledek = {}
 
@@ -85,31 +101,32 @@ def z_pracovniho_vlakna():
         vysledek["vlakno"] = app.call_on_ui_thread(threading.get_ident)
     except Exception as exc:
         vysledek["chyba"] = exc
-    finally:
-        root2.after(0, root2.quit)
 
 
 t = threading.Thread(target=z_pracovniho_vlakna)
-# Vlakno smi startovat az ze smycky udalosti: root.after() z jineho vlakna
-# funguje jen pri bezicim mainloop, jinak Tkinter vyhodi RuntimeError
-root2.after(50, t.start)
-root2.mainloop()
-t.join()
-root2.destroy()
+t.start()
+
+# Hlavni vlakno odbavi naplanovanou praci, presne jako by to udelal mainloop
+konec = time.time() + 10
+while not app.root.naplanovane and time.time() < konec:
+    time.sleep(0.01)
+assert app.root.naplanovane, "z pracovniho vlakna se musi planovat pres root.after()"
+app.root.naplanovane.pop()()
+t.join(timeout=10)
+assert not t.is_alive(), "call_on_ui_thread se po odbaveni musi vratit"
 
 assert "chyba" not in vysledek, f"call_on_ui_thread selhal: {vysledek.get('chyba')!r}"
-assert vysledek["vlakno"] == threading.get_ident(), (
-    f"call_on_ui_thread musi bezet v hlavnim vlakne "
-    f"({vysledek['vlakno']} != {threading.get_ident()})"
+assert vysledek["vlakno"] == hlavni_vlakno, (
+    f"funkce musi probehnout v hlavnim vlakne "
+    f"({vysledek['vlakno']} != {hlavni_vlakno})"
 )
 print("call_on_ui_thread() z pracovniho vlakna bezi v hlavnim - OK")
 
-root3 = tk.Tk()
-root3.withdraw()
-app.root = root3
-assert app.call_on_ui_thread(lambda: 42) == 42, "z hlavniho vlakna primo"
-root3.destroy()
-print("call_on_ui_thread() z hlavniho vlakna neblokuje - OK")
+# Z hlavniho vlakna se musi volat rovnou, jinak by se cekalo samo na sebe
+app.root.naplanovane.clear()
+assert app.call_on_ui_thread(lambda: 42) == 42
+assert not app.root.naplanovane, "z hlavniho vlakna se nic neplanuje"
+print("call_on_ui_thread() z hlavniho vlakna volá primo - OK")
 
 print("vse OK")
 sys.exit(0)
