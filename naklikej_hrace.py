@@ -4,6 +4,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import tkinter as tk
 import urllib.request
 from collections import Counter
@@ -184,6 +185,35 @@ def describe_windows():
     return "\n\nOtevřená okna:\n" + "\n".join(f"  • {t}" for t in titles[:15])
 
 
+def diagnostics_report():
+    """Přehled prostředí a otevřených oken pro chybové hlášení."""
+    lines = [
+        f"Platforma: {sys.platform}",
+        f"Python: {sys.version.split()[0]}",
+        f"Sestaveno PyInstallerem: {hasattr(sys, '_MEIPASS')}",
+        "",
+    ]
+
+    if not IS_WINDOWS:
+        lines.append(f"Nalezený proces Swiss-Manageru: {_swiss_proc_name or '—'}")
+        return "\n".join(lines)
+
+    windows = _win_visible_titles()
+    lines.append(f"Viditelných oken: {len(windows)}")
+    matched = [(h, t) for h, t in windows if "swiss" in t.lower()]
+    if matched:
+        lines.append(f"Odpovídá hledání \"swiss\": {len(matched)}")
+        for _hwnd, title in matched:
+            lines.append(f"  → {title}")
+    else:
+        lines.append("Žádné okno neobsahuje v titulku \"swiss\" —")
+        lines.append("tady je celý seznam, hledaný titulek najdeme podle něj:")
+    lines.append("")
+    for _hwnd, title in windows:
+        lines.append(f"  • {title}")
+    return "\n".join(lines)
+
+
 def activate_swiss_window():
     """Zkusí aktivovat okno aplikace Swiss-Manager. Vrací True při úspěchu."""
     global _swiss_proc_name
@@ -334,6 +364,9 @@ class SwissManagerAutomator:
         ttk.Button(top_frame, text="❓ Nápověda", command=self.show_help).pack(
             side="right", padx=5
         )
+        ttk.Button(
+            top_frame, text="🔍 Diagnostika", command=self.show_diagnostics
+        ).pack(side="right", padx=5)
 
         # --- MAIN AREA ---
         main_frame = ttk.Frame(self.root, padding=5)
@@ -443,6 +476,50 @@ class SwissManagerAutomator:
         "    a jména vložených hráčů."
     )
 
+    def show_diagnostics(self):
+        """Ukáže, jaká okna aplikace vidí a které z nich považuje za Swiss-Manager.
+
+        Bez konzole je tohle jediný způsob, jak zjistit, proč přepnutí selhalo —
+        text jde označit a zkopírovat.
+        """
+        win = tk.Toplevel(self.root)
+        win.title("Diagnostika — co aplikace vidí")
+        win.transient(self.root)
+        win.geometry("760x460")
+
+        text = tk.Text(win, wrap="none", height=20)
+        text.pack(fill="both", expand=True, padx=10, pady=(10, 5))
+
+        def render(extra=""):
+            text.config(state="normal")
+            text.delete("1.0", "end")
+            text.insert("end", diagnostics_report())
+            if extra:
+                text.insert("end", "\n" + extra)
+            text.config(state="disabled")
+
+        def try_switch():
+            try:
+                ok = activate_swiss_window()
+                extra = (
+                    "Zkouška přepnutí: ÚSPĚCH — okno dostalo popředí."
+                    if ok
+                    else "Zkouška přepnutí: NEÚSPĚCH — okno se nenašlo "
+                    "nebo ho systém nepustil dopředu."
+                )
+            except Exception:
+                extra = "Zkouška přepnutí skončila výjimkou:\n" + traceback.format_exc()
+            render(extra)
+
+        buttons = ttk.Frame(win)
+        buttons.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Button(buttons, text="Zkusit přepnout na Swiss-Manager",
+                   command=try_switch).pack(side="left")
+        ttk.Button(buttons, text="Načíst znovu", command=render).pack(side="left", padx=5)
+        ttk.Button(buttons, text="Zavřít", command=win.destroy).pack(side="right")
+
+        render()
+
     def show_help(self):
         win = tk.Toplevel(self.root)
         win.title("Nápověda — Klikej SM")
@@ -469,6 +546,26 @@ class SwissManagerAutomator:
         if 0 <= index < len(self.parsed_rows):
             label = self.parsed_rows[index]["status_label"]
             self.ui(lambda: label.config(text=text, foreground=color))
+
+    def run_in_thread(self, func):
+        """Spustí funkci ve vlákně a případnou výjimku ukáže v okně.
+
+        Aplikace je sestavená s --windowed, takže nemá konzoli. Bez tohohle
+        by výjimka ve vlákně zmizela beze stopy a navenek by to vypadalo,
+        že se po stisku tlačítka neděje vůbec nic.
+        """
+
+        def wrapper():
+            try:
+                func()
+            except Exception:
+                detail = traceback.format_exc()
+                self.running = False
+                self.ui(self.ui_state_idle)
+                self.set_status("❌ Chyba — podrobnosti v okně.")
+                self.ui(messagebox.showerror, "Neočekávaná chyba", detail)
+
+        threading.Thread(target=wrapper, daemon=True).start()
 
     def ui_state_running(self):
         self.btn_start.config(state="disabled")
@@ -538,9 +635,8 @@ class SwissManagerAutomator:
         self.status_var.set(f"Úspěšně načteno {len(self.parsed_rows)} položek.")
 
         self.load_generation += 1
-        threading.Thread(
-            target=self.lazy_load_members, args=(self.load_generation,), daemon=True
-        ).start()
+        generation = self.load_generation
+        self.run_in_thread(lambda: self.lazy_load_members(generation))
 
     def sync_global_type(self):
         new_type = self.global_type_var.get()
@@ -684,7 +780,7 @@ class SwissManagerAutomator:
 
         self.running = True
         self.ui_state_running()
-        threading.Thread(target=self.automation_loop, daemon=True).start()
+        self.run_in_thread(self.automation_loop)
 
     def step_automation(self):
         if self.running:
@@ -712,7 +808,7 @@ class SwissManagerAutomator:
                 f"Krok dokončen. Připraven na položku {self.current_index + 1}."
             )
 
-        threading.Thread(target=single_step, daemon=True).start()
+        self.run_in_thread(single_step)
 
     def stop_automation(self):
         self.running = False

@@ -29,11 +29,19 @@ jobs:
           python -c @"
           import naklikej_hrace as m
           okna = m._win_visible_titles()
-          print(f'EnumWindows OK, viditelných oken: {len(okna)}')
-          assert m._win_activate_swiss() is False, 'na runneru Swiss-Manager nebeží'
-          print('_win_activate_swiss() bez Swiss-Manageru vrací False - OK')
-          m.describe_windows()
-          print('describe_windows() OK')
+          print(f'EnumWindows OK, viditelnych oken: {len(okna)}')
+          assert m._win_activate_swiss() is False, 'na runneru Swiss-Manager nebezi'
+          print('_win_activate_swiss() bez Swiss-Manageru vraci False - OK')
+          # _win_activate se nesmi jen preskocit: je to jedina funkce, kterou
+          # hledani podle nazvu na runneru nikdy nespusti, protoze tu zadny
+          # Swiss-Manager neni. Zavolat ji na libovolne okno; jestli se
+          # prepnuti povede je jedno, jde o to, ze neskonci vyjimkou.
+          assert okna, 'runner nema zadne viditelne okno k testu'
+          hwnd, title = okna[0]
+          vysledek = m._win_activate(hwnd)
+          print(f'_win_activate() na okno {title!r} probehlo, vratilo {vysledek}')
+          print(m.diagnostics_report()[:400])
+          print('diagnostics_report() OK')
           "@
 
       - name: Sestavit exe
