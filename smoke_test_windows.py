@@ -17,7 +17,12 @@ assert okna, "runner nema zadne viditelne okno"
 # _win_activate() nesmí zůstat nespuštěná: hledání podle názvu ji na runneru
 # nikdy nezavolá, protože tu žádný Swiss-Manager neběží
 hwnd, title = okna[0]
-print(f"_win_activate() na {title!r} vratilo {m._win_activate(hwnd)}")
+uspech = m._win_activate(hwnd)
+print(f"_win_activate() na {title!r} vratilo {uspech}")
+print(f"_win_describe(): {m._win_describe(hwnd)}")
+if uspech:
+    assert m.activation_error() == "", "po uspechu nesmi zustat popis chyby"
+    print("po uspechu je popis chyby prazdny - OK")
 
 print(f"_win_exe_name() prvniho okna: {m._win_exe_name(hwnd)!r}")
 
@@ -37,6 +42,8 @@ try:
 
     assert m._win_activate_swiss() is False, "bez Swiss-Manageru musi vratit False"
     print("_win_activate_swiss() bez Swiss-Manageru vraci False - OK")
+    assert m.activation_error(), "neuspech musi byt popsany pro chybovou hlasku"
+    print(f"popis neuspechu: {m.activation_error().strip()}")
 
     print("--- diagnostics_report() ---")
     print(m.diagnostics_report())

@@ -157,14 +157,23 @@ def _win_foreground_ok(hwnd):
     return pid != 0 and _win_pid(fg) == pid
 
 
-def _win_activate(hwnd):
-    """Přepne na okno a ověří, že opravdu dostalo popředí.
+# Popis posledního neúspěšného přepnutí — doplňuje se do chybové hlášky
+_last_activation_error = ""
 
-    Windows nepustí okno dopředu procesu, který popředí zrovna nevlastní.
-    Proto se vstupní fronta vlákna aktuálního popředního okna dočasně připojí
-    k vláknu cílového (AttachThreadInput) — jinak by se jen rozblikala položka
-    na hlavním panelu. Volá se přímo z naší aplikace: jako držitel popředí
-    smí popředí předat dál, na rozdíl od podprocesu PowerShellu.
+
+def _win_describe(hwnd):
+    if not hwnd:
+        return "žádné"
+    return f"{_win_exe_name(hwnd) or '?'} — {_win_title(hwnd) or '(bez titulku)'}"
+
+
+def _win_send_to_front(hwnd):
+    """Jeden pokus o předání popředí. Windows to provede asynchronně.
+
+    Systém nepustí okno dopředu procesu, který popředí zrovna nevlastní,
+    proto se vstupní fronta vlákna popředního okna dočasně připojí k vláknu
+    cílového (AttachThreadInput) — jinak by se jen rozblikala položka
+    na hlavním panelu.
     """
     if _user32.IsIconic(hwnd):
         _user32.ShowWindow(hwnd, SW_RESTORE)
@@ -182,11 +191,36 @@ def _win_activate(hwnd):
         if attached:
             _user32.AttachThreadInput(fg_thread, target_thread, False)
 
-    # Přepnutí je asynchronní — chvíli počkat, než se prohlásí za neúspěch
-    for _ in range(20):
+
+def _win_activate(hwnd, timeout=4.0, attempts=3):
+    """Přepne na okno a počká, až popředí opravdu převezme.
+
+    Přepnutí je asynchronní a velká aplikace s načteným turnajem ho nemusí
+    stihnout hned, proto se čeká několik vteřin a pokus se mezitím opakuje.
+    Kdyby se čekalo krátce, aplikace by přepnutí prohlásila za neúspěšné
+    ve chvíli, kdy už proběhlo, a chybová hláška by popředí vzala zpátky.
+    """
+    global _last_activation_error
+
+    deadline = time.time() + timeout
+    next_try = 0.0
+    pokusu = 0
+
+    while time.time() < deadline:
+        if time.time() >= next_try and pokusu < attempts:
+            _win_send_to_front(hwnd)
+            pokusu += 1
+            next_try = time.time() + timeout / attempts
         if _win_foreground_ok(hwnd):
+            _last_activation_error = ""
             return True
         time.sleep(0.05)
+
+    _last_activation_error = (
+        f"Cíl:      {_win_describe(hwnd)}\n"
+        f"V popředí zůstalo: {_win_describe(_user32.GetForegroundWindow())}\n"
+        f"Pokusů: {pokusu}, čekáno {timeout:.0f} s"
+    )
     return False
 
 
@@ -233,8 +267,19 @@ def _win_find_swiss():
 
 
 def _win_activate_swiss():
+    global _last_activation_error
     hwnd = _win_find_swiss()
-    return _win_activate(hwnd) if hwnd else False
+    if not hwnd:
+        _last_activation_error = "Okno Swiss-Manageru se mezi otevřenými okny nenašlo."
+        return False
+    return _win_activate(hwnd)
+
+
+def activation_error():
+    """Podrobnosti posledního neúspěšného přepnutí, pokud nějaké jsou."""
+    if not IS_WINDOWS or not _last_activation_error:
+        return ""
+    return _last_activation_error + "\n"
 
 
 def describe_windows():
@@ -576,8 +621,7 @@ class SwissManagerAutomator:
                 extra = (
                     "Zkouška přepnutí: ÚSPĚCH — okno dostalo popředí."
                     if ok
-                    else "Zkouška přepnutí: NEÚSPĚCH — okno se nenašlo "
-                    "nebo ho systém nepustil dopředu."
+                    else "Zkouška přepnutí: NEÚSPĚCH\n" + activation_error()
                 )
             except Exception:
                 extra = "Zkouška přepnutí skončila výjimkou:\n" + traceback.format_exc()
@@ -804,7 +848,9 @@ class SwissManagerAutomator:
                     "Chyba",
                     "Nepodařilo se přepnout na okno Swiss-Manageru.\n"
                     "Spusťte Swiss-Manager, nebo vypněte automatickou aktivaci "
-                    "a přepněte se během odpočtu ručně." + describe_windows(),
+                    "a přepněte se během odpočtu ručně.\n\n"
+                    + activation_error()
+                    + describe_windows(),
                 )
                 return False
             time.sleep(0.5)
