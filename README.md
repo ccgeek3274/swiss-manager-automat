@@ -27,7 +27,7 @@ schránka a stisky kláves se řeší systémovými nástroji:
 
 | Platforma | Použité nástroje |
 |---|---|
-| Windows | PowerShell — `Set-Clipboard`, `WScript.Shell` (SendKeys, AppActivate) |
+| Windows | PowerShell — `Set-Clipboard`, `WScript.Shell` (SendKeys); přepnutí okna přes Win32 API (`ctypes`) |
 | macOS | `pbcopy`, `osascript` (System Events) |
 
 Na macOS je potřeba dát Terminálu (nebo výsledné aplikaci) oprávnění
