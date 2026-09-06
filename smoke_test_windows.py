@@ -81,24 +81,34 @@ vysledek = {}
 
 
 def z_pracovniho_vlakna():
-    vysledek["vlakno"] = app.call_on_ui_thread(threading.get_ident)
+    try:
+        vysledek["vlakno"] = app.call_on_ui_thread(threading.get_ident)
+    except Exception as exc:
+        vysledek["chyba"] = exc
+    finally:
+        root2.after(0, root2.quit)
 
 
 t = threading.Thread(target=z_pracovniho_vlakna)
-t.start()
-while t.is_alive():          # hlavni vlakno musi tocit smyckou udalosti
-    root2.update()
-    time.sleep(0.01)
+# Vlakno smi startovat az ze smycky udalosti: root.after() z jineho vlakna
+# funguje jen pri bezicim mainloop, jinak Tkinter vyhodi RuntimeError
+root2.after(50, t.start)
+root2.mainloop()
 t.join()
 root2.destroy()
 
+assert "chyba" not in vysledek, f"call_on_ui_thread selhal: {vysledek.get('chyba')!r}"
 assert vysledek["vlakno"] == threading.get_ident(), (
     f"call_on_ui_thread musi bezet v hlavnim vlakne "
     f"({vysledek['vlakno']} != {threading.get_ident()})"
 )
 print("call_on_ui_thread() z pracovniho vlakna bezi v hlavnim - OK")
 
+root3 = tk.Tk()
+root3.withdraw()
+app.root = root3
 assert app.call_on_ui_thread(lambda: 42) == 42, "z hlavniho vlakna primo"
+root3.destroy()
 print("call_on_ui_thread() z hlavniho vlakna neblokuje - OK")
 
 print("vse OK")
