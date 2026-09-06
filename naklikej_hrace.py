@@ -46,6 +46,28 @@ if IS_WINDOWS:
         wintypes.BOOL,
     ]
 
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+    _kernel32 = ctypes.windll.kernel32
+    _kernel32.GetCurrentProcessId.restype = wintypes.DWORD
+    _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    # Prohlížeč s otevřeným repozitářem "swiss-manager-automat" má "swiss"
+    # v titulku taky — na okno aplikace se podle názvu poznat nedá
+    BROWSER_EXE = (
+        "firefox.exe", "chrome.exe", "msedge.exe", "opera.exe",
+        "brave.exe", "iexplore.exe", "vivaldi.exe", "safari.exe",
+    )
+
 
 def resource_path(name):
     """Cesta k přibalenému souboru — funguje i v PyInstaller onefile exe."""
@@ -168,11 +190,51 @@ def _win_activate(hwnd):
     return False
 
 
-def _win_activate_swiss():
+def _win_exe_name(hwnd):
+    """Název exe procesu, kterému okno patří. Prázdný řetězec při neúspěchu."""
+    pid = _win_pid(hwnd)
+    if not pid:
+        return ""
+    handle = _kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(2048)
+        buf = ctypes.create_unicode_buffer(size.value)
+        if not _kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return ""
+        return os.path.basename(buf.value)
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def _win_find_swiss():
+    """Najde okno Swiss-Manageru. Vrací hwnd, nebo None.
+
+    Podle titulku to spolehlivě nejde: "swiss" v něm má i tahle aplikace
+    ("Swiss-Manager Automation Tool") a prohlížeč s otevřeným repozitářem.
+    Vlastní okno je navíc při stisku STARTu v popředí, takže by ve výčtu
+    vyšlo první a aplikace by aktivovala sama sebe. Rozhoduje proto název
+    exe; titulek je až záložní kritérium a prohlížeče se z něj vylučují.
+    """
+    our_pid = _kernel32.GetCurrentProcessId()
+    podle_titulku = []
+
     for hwnd, title in _win_visible_titles():
-        if "swiss" in title.lower():
-            return _win_activate(hwnd)
-    return False
+        if _win_pid(hwnd) == our_pid:
+            continue
+        exe = _win_exe_name(hwnd).lower()
+        if "swiss" in exe:
+            return hwnd
+        if "swiss" in title.lower() and exe not in BROWSER_EXE:
+            podle_titulku.append(hwnd)
+
+    return podle_titulku[0] if podle_titulku else None
+
+
+def _win_activate_swiss():
+    hwnd = _win_find_swiss()
+    return _win_activate(hwnd) if hwnd else False
 
 
 def describe_windows():
@@ -198,19 +260,29 @@ def diagnostics_report():
         lines.append(f"Nalezený proces Swiss-Manageru: {_swiss_proc_name or '—'}")
         return "\n".join(lines)
 
+    our_pid = _kernel32.GetCurrentProcessId()
     windows = _win_visible_titles()
-    lines.append(f"Viditelných oken: {len(windows)}")
-    matched = [(h, t) for h, t in windows if "swiss" in t.lower()]
-    if matched:
-        lines.append(f"Odpovídá hledání \"swiss\": {len(matched)}")
-        for _hwnd, title in matched:
-            lines.append(f"  → {title}")
+    target = _win_find_swiss()
+
+    if target:
+        lines.append(f"Vybráno jako Swiss-Manager: {_win_exe_name(target)} — "
+                     f"{_win_title(target)}")
     else:
-        lines.append("Žádné okno neobsahuje v titulku \"swiss\" —")
-        lines.append("tady je celý seznam, hledaný titulek najdeme podle něj:")
+        lines.append("Okno Swiss-Manageru se nenašlo. Rozhoduje název exe;")
+        lines.append("pokud je v seznamu níž, pošlete ho a hledání doladíme.")
     lines.append("")
-    for _hwnd, title in windows:
-        lines.append(f"  • {title}")
+    lines.append(f"Viditelná okna ({len(windows)}):")
+
+    for hwnd, title in windows:
+        znacka = "→" if hwnd == target else " "
+        exe = _win_exe_name(hwnd) or "?"
+        poznamka = ""
+        if _win_pid(hwnd) == our_pid:
+            poznamka = "   [tato aplikace — přeskakuje se]"
+        elif exe.lower() in BROWSER_EXE:
+            poznamka = "   [prohlížeč — přeskakuje se]"
+        lines.append(f"  {znacka} {exe:<24} {title}{poznamka}")
+
     return "\n".join(lines)
 
 
