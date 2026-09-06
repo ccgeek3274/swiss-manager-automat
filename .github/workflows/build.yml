@@ -25,6 +25,9 @@ jobs:
       # tenhle blok vůbec nevykoná, takže překlep by se jinak projevil
       # až u uživatele
       - name: Smoke test Win32 volání
+        # Konzole runneru jede v cp1252 a diagnostický výpis je česky
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           python -c @"
           import naklikej_hrace as m
